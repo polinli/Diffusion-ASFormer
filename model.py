@@ -309,12 +309,25 @@ class MyTransformer(nn.Module):
         
     def forward(self, x, mask):
         out, feature = self.encoder(x, mask)
-        outputs = out.unsqueeze(0)
-        
+        outputs = out.unsqueeze(0) #don't need this
+
+        # add mask on encoder ouput feature
+        # feature = feature * condition_mask
+
+        # action_list = noisy_gt
+        '''
+        # decoder input: action_list, feature(encoder output), current_step
+
+        # Denoise (iterate from total_steps to 1)
+        for current_step in range(total_steps, 0, -1):
+            action_list, feature = decoder(F.softmax(action_list, dim=1) * mask[:, 0:1, :], feature* mask[:, 0:1, :], mask, current_step)
+            outputs = torch.cat((outputs, action_list.unsqueeze(0)), dim=0)
+        '''
         for decoder in self.decoders:
             out, feature = decoder(F.softmax(out, dim=1) * mask[:, 0:1, :], feature* mask[:, 0:1, :], mask)
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
- 
+
+        # outputs shape: (num_decoders+1, N, C, L)
         return outputs
 
     
@@ -343,6 +356,15 @@ class Trainer:
             while batch_gen.has_next():
                 batch_input, batch_target, mask, vids = batch_gen.next_batch(batch_size, False)
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
+                # randomly generate total_steps from 1 to 1000
+                # total_steps = np.random.randint(1, 1000)
+
+                # randomly choose one of condition mask from ground-truth(batch_target), then pass to encoder
+                # condition_mask = generate_condition_mask(batch_target)
+
+                # genrate noisy action list from ground-truth(batch_target), then pass to decoder
+                # noisy_gt = generate_noisy_action_list(batch_target)
+
                 optimizer.zero_grad()
                 ps = self.model(batch_input, mask)
 
