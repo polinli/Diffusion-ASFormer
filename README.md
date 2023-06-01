@@ -1,6 +1,13 @@
 # ASFormer: Transformer for Action Segmentation
 This repo provides training &amp; inference code for BMVC 2021 paper: [ASFormer: Transformer for Action Segmentation](https://arxiv.org/pdf/2110.08568.pdf) 
 
+# ToDo
+1. add noise to ground truth.
+2. encoder input: feature, last step action list, current step
+3. recursively encode until step=0
+4. mask on encoder ouput (training)
+5. loss
+
 # Update 
 Thanks to @ddz16 . There is a small error in the code (L72, model.py), but it does not affect the main conclusions of this paper or the performance, see [#2](https://github.com/ChinaYi/ASFormer/issues/2). In order to load the pre training model of the paper, we do not update the repo to fix the bug. However, we still suggest to make a manual change after downloading the code.
 
