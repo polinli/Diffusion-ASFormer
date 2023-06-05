@@ -361,17 +361,19 @@ class Trainer:
                 # batch_target shape: (N, L)
                 batch_input, batch_target, mask, vids = batch_gen.next_batch(batch_size, False)
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
-                # randomly generate total_steps from 1 to 1000
-                # total_steps = np.random.randint(1, 1000)
+
+                # randomly generate total_steps(tensor) from 1 to 1000
+                total_steps = torch.randint(1, 1000, (1,)).item()
 
                 # randomly choose one of condition mask from ground-truth(batch_target), then pass to encoder
                 # condition_mask = generate_condition_mask(batch_target)
 
                 # genrate noisy action list from ground-truth(batch_target), then pass to decoder
-                # noisy_gt = forwar_process(batch_target, total_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps)
+                # noisy_input = forwar_process(batch_target, total_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps)
 
                 optimizer.zero_grad()
                 ps = self.model(batch_input, mask)
+                # ps = self.model(noisy_input, mask, condition_mask, total_steps)
 
                 loss = 0
                 for p in ps:
