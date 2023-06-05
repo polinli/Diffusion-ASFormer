@@ -8,6 +8,7 @@ import numpy as np
 import math
 
 from eval import segment_bars_with_confidence
+from add_noise import q_xt_x0
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -298,6 +299,7 @@ class Decoder(nn.Module):
 
         out = self.conv_out(feature) * mask[:, 0:1, :]
 
+        # out shape: (N, C, L)
         return out, feature
     
 class MyTransformer(nn.Module):
@@ -328,6 +330,7 @@ class MyTransformer(nn.Module):
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
 
         # outputs shape: (num_decoders+1, N, C, L)
+        
         return outputs
 
     
@@ -354,6 +357,8 @@ class Trainer:
             total = 0
 
             while batch_gen.has_next():
+                # batch_input shape: (N, C, L)
+                # batch_target shape: (N, L)
                 batch_input, batch_target, mask, vids = batch_gen.next_batch(batch_size, False)
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
                 # randomly generate total_steps from 1 to 1000
@@ -363,13 +368,14 @@ class Trainer:
                 # condition_mask = generate_condition_mask(batch_target)
 
                 # genrate noisy action list from ground-truth(batch_target), then pass to decoder
-                # noisy_gt = generate_noisy_action_list(batch_target)
+                # noisy_gt = forwar_process(batch_target, total_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps)
 
                 optimizer.zero_grad()
                 ps = self.model(batch_input, mask)
 
                 loss = 0
                 for p in ps:
+                    # shape: (N, C, L) => (N*L, C), shape: (N, L) => (N*L)
                     loss += self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes), batch_target.view(-1))
                     loss += 0.15 * torch.mean(torch.clamp(
                         self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)), min=0,
