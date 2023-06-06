@@ -8,7 +8,7 @@ import numpy as np
 import math
 
 from eval import segment_bars_with_confidence
-from add_noise import q_xt_x0
+from add_noise import forward_process
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -306,6 +306,7 @@ class MyTransformer(nn.Module):
     def __init__(self, num_decoders, num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate):
         super(MyTransformer, self).__init__()
         self.encoder = Encoder(num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate, att_type='sliding_att', alpha=1)
+        # num_layers=8 and num_f_maps=18 acccording to the paper
         self.decoders = nn.ModuleList([copy.deepcopy(Decoder(num_layers, r1, r2, num_f_maps, num_classes, num_classes, att_type='sliding_att', alpha=exponential_descrease(s))) for s in range(num_decoders)]) # num_decoders
         
         
@@ -369,7 +370,7 @@ class Trainer:
                 # condition_mask = generate_condition_mask(batch_target)
 
                 # genrate noisy action list from ground-truth(batch_target), then pass to decoder
-                # noisy_input = forwar_process(batch_target, total_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps)
+                # noisy_input = forward_process(batch_target, total_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps)
 
                 optimizer.zero_grad()
                 ps = self.model(batch_input, mask)
