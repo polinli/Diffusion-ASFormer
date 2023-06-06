@@ -1,6 +1,7 @@
 import torch
+from torch import Tensor
 
-def forwar_process(batch_target: Tensor, total_steps: Tensor, beta_start = 0.0001, beta_end = 0.04, beta_steps) -> Tensor:
+def forward_process(batch_target: Tensor, total_steps: Tensor, beta_start = 0.0001, beta_end = 0.04, beta_steps = 1000) -> Tensor:
     # simplified e forward process using the reparameterization trick
     # batch_target shape: (N, L), add noise on all the elements
 
@@ -9,14 +10,18 @@ def forwar_process(batch_target: Tensor, total_steps: Tensor, beta_start = 0.000
 
     # replace beta with alpha
     alpha = 1. - beta
-    alpha_bar = torch.cumprod(alpha, dim=0)
+    alpha_bar = torch.cumprod(alpha, dim=0)[beta_steps-1] # get the last element from the cumprod
 
     # the ouput mean and variance of the Gaussian distribution
-    mean = gather(alpha_bar, total_steps)**0.5 * batch_target
-    deviation = (1-gather(alpha_bar, total_steps))**0.5
-    eps = torch.randn_like(batch_target)
+    mean = alpha_bar**0.5 * batch_target
+    deviation = (1-alpha_bar)**0.5
+    eps = torch.randn_like(batch_target) # generate gaussion noise
 
-    return mean + deviation * eps
+    # corrupted action list. And normalize to [0, 1]
+    corrupted_actions = mean + deviation * eps
+    corrupted_actions = (output - output.min()) / (output.max() - output.min())
+
+    return corrupted_actions
 
 def generate_noise(batch_size, length):
     # generate pure gaussion noise with fixed random seed
