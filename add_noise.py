@@ -25,9 +25,9 @@ def forward_process(one_hot_batch_target: Tensor, total_steps: Tensor, beta_star
 
     return noisy_action_list
 
-def generate_noise(batch_size, num_classes, length):
+def generate_noise(batch_target, num_classes):
     # generate pure gaussion noise with fixed random seed
     torch.manual_seed(19990526)
-    noise = torch.randn(batch_size, length)
+    noise = torch.randn(batch_target.shape[0], num_classes, batch_target.shape[1]) # (N, C, L)
     
     return noise
