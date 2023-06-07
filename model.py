@@ -6,6 +6,7 @@ from torch import optim
 import copy
 import numpy as np
 import math
+import time
 
 from eval import segment_bars_with_confidence
 from add_noise import forward_process
@@ -286,14 +287,16 @@ class Decoder(nn.Module):
     def __init__(self, num_layers, r1, r2, num_f_maps, input_dim, num_classes, att_type, alpha):
         super(Decoder, self).__init__()#         self.position_en = PositionalEncoding(d_model=num_f_maps)
         self.conv_1x1 = nn.Conv1d(input_dim, num_f_maps, 1)
+        self.fencoder_conv_1x1 = nn.Conv1d(64, num_f_maps, 1)
         self.layers = nn.ModuleList(
             [AttModule(2 ** i, num_f_maps, num_f_maps, r1, r2, att_type, 'decoder', alpha) for i in # 2 ** i
              range(num_layers)])
         self.conv_out = nn.Conv1d(num_f_maps, num_classes, 1)
 
-    def forward(self, x, fencoder, mask):
+    def forward(self, x, fencoder, mask, current_step):
 
-        feature = self.conv_1x1(x)
+        feature = self.conv_1x1(x)  # shape of feature:  torch.Size([N, 18, L])
+        fencoder = self.fencoder_conv_1x1(fencoder) # shape of fencoder:  torch.Size([N, 18, L])
         for layer in self.layers:
             feature = layer(feature, fencoder, mask)
 
@@ -307,37 +310,38 @@ class MyTransformer(nn.Module):
         super(MyTransformer, self).__init__()
         self.encoder = Encoder(num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate, att_type='sliding_att', alpha=1)
         # num_layers=8 and num_f_maps=18 acccording to the paper
-        self.decoders = nn.ModuleList([copy.deepcopy(Decoder(num_layers, r1, r2, num_f_maps, num_classes, num_classes, att_type='sliding_att', alpha=exponential_descrease(s))) for s in range(num_decoders)]) # num_decoders
+        #self.decoders = nn.ModuleList([copy.deepcopy(Decoder(num_layers, r1, r2, num_f_maps, num_classes, num_classes, att_type='sliding_att', alpha=exponential_descrease(s))) for s in range(num_decoders)]) # num_decoders
+        self.decoder = Decoder(8, r1, r2, 16, num_classes, num_classes, att_type='sliding_att', alpha=exponential_descrease(1))
         
-        
-    def forward(self, x, mask):
-        out, feature = self.encoder(x, mask)
+    def forward(self, batch_input, noisy_action_list, mask, total_steps):
+        out, condition = self.encoder(batch_input, mask)
         outputs = out.unsqueeze(0) #don't need this
+
+        #print("shape of out: ", out.shape) # shape of out:  torch.Size([N, 19, L])
+        #print("shape of condition: ", condition.shape) # shape of condition:  torch.Size([N, 64, L])
 
         # add mask on encoder ouput feature
         # feature = feature * condition_mask
-
-        # action_list = noisy_gt
-        '''
-        # decoder input: action_list, feature(encoder output), current_step
-
-        # Denoise (iterate from total_steps to 1)
+        
+        # Reverse process (iterate from total_steps to 1)
+        action_list = noisy_action_list
         for current_step in range(total_steps, 0, -1):
-            action_list, feature = decoder(F.softmax(action_list, dim=1) * mask[:, 0:1, :], feature* mask[:, 0:1, :], mask, current_step)
-            outputs = torch.cat((outputs, action_list.unsqueeze(0)), dim=0)
+            action_list, feature = self.decoder(F.softmax(action_list, dim=1) * mask[:, 0:1, :], condition* mask[:, 0:1, :], mask, current_step)
+            if current_step < 5:
+                outputs = torch.cat((outputs, action_list.unsqueeze(0)), dim=0)
+
         '''
         for decoder in self.decoders:
             out, feature = decoder(F.softmax(out, dim=1) * mask[:, 0:1, :], feature* mask[:, 0:1, :], mask)
             outputs = torch.cat((outputs, out.unsqueeze(0)), dim=0)
-
-        # outputs shape: (num_decoders+1, N, C, L)
-        
+        '''
+        # outputs shape: (num_decoders+1, N, C, L), N = batch_size, L = length of the video, C = num_classes
         return outputs
 
     
 class Trainer:
     def __init__(self, num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate):
-        self.model = MyTransformer(3, num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate)
+        self.model = MyTransformer(1, num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate)
         self.ce = nn.CrossEntropyLoss(ignore_index=-100)
 
         print('Model Size: ', sum(p.numel() for p in self.model.parameters()))
@@ -353,33 +357,47 @@ class Trainer:
         
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=3, verbose=True)
         for epoch in range(num_epochs):
+            #torch.cuda.empty_cache()
             epoch_loss = 0
             correct = 0
             total = 0
 
             while batch_gen.has_next():
-                # batch_input shape: (N, C, L)
+                print("new batch...")
+                # batch_input shape: (N, 2048, L)
                 # batch_target shape: (N, L)
                 batch_input, batch_target, mask, vids = batch_gen.next_batch(batch_size, False)
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
 
-                # randomly generate total_steps(tensor) from 1 to 1000
-                total_steps = torch.randint(1, 1000, (1,)).item()
+                torch.manual_seed( int(time.time()) )
+                total_steps = torch.randint(1, 50, (1,)).item()   # randomly generate total_steps(tensor) from 1 to 1000
+                print("total_steps: ", total_steps)
+
+                # genrate noisy action list from ground-truth(batch_target), then pass to decoder        
+                one_hot_batch_target = F.one_hot(batch_target, num_classes=self.num_classes).float()    # convert batch_target to one-hot encoding
+                one_hot_batch_target = one_hot_batch_target.transpose(2, 1).contiguous()                # shape: (N, L, C) -> (N, C, L)
+                noisy_action_list = forward_process(one_hot_batch_target, total_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps = total_steps)
 
                 # randomly choose one of condition mask from ground-truth(batch_target), then pass to encoder
                 # condition_mask = generate_condition_mask(batch_target)
 
-                # genrate noisy action list from ground-truth(batch_target), then pass to decoder
-                # noisy_input = forward_process(batch_target, total_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps)
-
                 optimizer.zero_grad()
-                ps = self.model(batch_input, mask)
+                #ps = self.model(batch_input, mask)
                 # ps = self.model(noisy_input, mask, condition_mask, total_steps)
+                ps = self.model(batch_input, noisy_action_list, mask, total_steps)
 
                 loss = 0
                 for p in ps:
-                    # shape: (N, C, L) => (N*L, C), shape: (N, L) => (N*L)
-                    loss += self.ce(p.transpose(2, 1).contiguous().view(-1, self.num_classes), batch_target.view(-1))
+                    # shape: (N, C, L) => (N*L, C), shape: (N, L) => (N*L), 
+                    # N = batch_size, L = length of the video, C = num_classes
+                    p_reformat = p.transpose(2, 1).contiguous().view(-1, self.num_classes) # shape of p_reformat:  torch.Size([N*L, 19])
+                    torch.set_printoptions(profile="default")
+                    # print("shape of p_reformat: ", p_reformat.shape)
+                    # print("p_reformat: ", p_reformat)
+                    # print("batch_target.shape: ", batch_target.shape)
+                    # print("batch_target.view(-1).shape: ", batch_target.view(-1).shape) # batch_target.view(-1).shape:  torch.Size([L])
+
+                    loss += self.ce(p_reformat, batch_target.view(-1))
                     loss += 0.15 * torch.mean(torch.clamp(
                         self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)), min=0,
                         max=16) * mask[:, :, 1:])
