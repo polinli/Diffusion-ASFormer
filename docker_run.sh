@@ -1,5 +1,5 @@
 docker run -it \
-    --shm-size 16G \
+    --shm-size 24G \
     --gpus all  \
     -v $(pwd):/diffusion-asformer \
     -v ~/paul/dataset/data:/diffusion-asformer/data \
