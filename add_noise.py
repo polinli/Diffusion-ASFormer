@@ -29,5 +29,6 @@ def generate_noise(batch_target, num_classes):
     # generate pure gaussion noise with fixed random seed
     torch.manual_seed(19990526)
     noise = torch.randn(batch_target.shape[0], num_classes, batch_target.shape[1]) # (N, C, L)
+    noise = noise.to(device)
     
     return noise
