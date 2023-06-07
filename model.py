@@ -9,7 +9,7 @@ import math
 import time
 
 from eval import segment_bars_with_confidence
-from add_noise import forward_process
+from add_noise import forward_process, generate_noise
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -254,6 +254,7 @@ class Encoder(nn.Module):
     def __init__(self, num_layers, r1, r2, num_f_maps, input_dim, num_classes, channel_masking_rate, att_type, alpha):
         super(Encoder, self).__init__()
         self.conv_1x1 = nn.Conv1d(input_dim, num_f_maps, 1) # fc layer
+        self.fencoder_conv_1x1 = nn.Conv1d(num_f_maps, 16, 1)
         self.layers = nn.ModuleList(
             [AttModule(2 ** i, num_f_maps, num_f_maps, r1, r2, att_type, 'encoder', alpha) for i in # 2**i
              range(num_layers)])
@@ -279,6 +280,7 @@ class Encoder(nn.Module):
             feature = layer(feature, None, mask)
         
         out = self.conv_out(feature) * mask[:, 0:1, :]
+        feature = self.fencoder_conv_1x1(feature)
 
         return out, feature
 
@@ -287,7 +289,7 @@ class Decoder(nn.Module):
     def __init__(self, num_layers, r1, r2, num_f_maps, input_dim, num_classes, att_type, alpha):
         super(Decoder, self).__init__()#         self.position_en = PositionalEncoding(d_model=num_f_maps)
         self.conv_1x1 = nn.Conv1d(input_dim, num_f_maps, 1)
-        self.fencoder_conv_1x1 = nn.Conv1d(64, num_f_maps, 1)
+        #self.fencoder_conv_1x1 = nn.Conv1d(64, num_f_maps, 1)
         self.layers = nn.ModuleList(
             [AttModule(2 ** i, num_f_maps, num_f_maps, r1, r2, att_type, 'decoder', alpha) for i in # 2 ** i
              range(num_layers)])
@@ -296,7 +298,7 @@ class Decoder(nn.Module):
     def forward(self, x, fencoder, mask, current_step):
 
         feature = self.conv_1x1(x)  # shape of feature:  torch.Size([N, 18, L])
-        fencoder = self.fencoder_conv_1x1(fencoder) # shape of fencoder:  torch.Size([N, 18, L])
+        #fencoder = self.fencoder_conv_1x1(fencoder) # shape of fencoder:  torch.Size([N, 18, L])
         for layer in self.layers:
             feature = layer(feature, fencoder, mask)
 
@@ -416,7 +418,7 @@ class Trainer:
             print("[epoch %d]: epoch loss = %f,   acc = %f" % (epoch + 1, epoch_loss / len(batch_gen.list_of_examples),
                                                                float(correct) / total))
 
-            if (epoch + 1) % 10 == 0 and batch_gen_tst is not None:
+            if (epoch ) % 10 == 0 and batch_gen_tst is not None:
                 self.test(batch_gen_tst, epoch)
                 torch.save(self.model.state_dict(), save_dir + "/epoch-" + str(epoch + 1) + ".model")
                 torch.save(optimizer.state_dict(), save_dir + "/epoch-" + str(epoch + 1) + ".opt")
@@ -432,7 +434,8 @@ class Trainer:
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
 
                 pure_noise = generate_noise(batch_target, self.num_classes)
-                ps = self.model(batch_input, pure_noise, mask, total_steps=25)
+                p = self.model(batch_input, pure_noise, mask, total_steps=25)
+
                 _, predicted = torch.max(p.data[-1], 1)
                 correct += ((predicted == batch_target).float() * mask[:, 0, :].squeeze(1)).sum().item()
                 total += torch.sum(mask[:, 0, :]).item()
