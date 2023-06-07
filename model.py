@@ -430,7 +430,9 @@ class Trainer:
             while batch_gen_tst.has_next():
                 batch_input, batch_target, mask, vids = batch_gen_tst.next_batch(1, if_warp)
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
-                p = self.model(batch_input, mask)
+
+                pure_noise = generate_noise(batch_target, self.num_classes)
+                ps = self.model(batch_input, pure_noise, mask, total_steps=25)
                 _, predicted = torch.max(p.data[-1], 1)
                 correct += ((predicted == batch_target).float() * mask[:, 0, :].squeeze(1)).sum().item()
                 total += torch.sum(mask[:, 0, :]).item()
