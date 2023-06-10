@@ -92,12 +92,12 @@ if args.action == "train":
     batch_gen_tst.read_data(vid_list_file_tst)
 
     # print the first data sample
-    batch_input, batch_target, mask, vids = batch_gen.next_batch(bz, False)
+    #batch_input, batch_target, mask, vids = batch_gen.next_batch(bz, False)
     #batch_input, batch_target, mask, vids = batch_gen.next_batch(bz, False)
     #torch.set_printoptions(profile="full")
-    print("batch_input.shape: ", batch_input.shape)
+    #print("batch_input.shape: ", batch_input.shape)
     #print("batch_input: ", batch_input)
-    print("batch_target.shape: ", batch_target.shape)
+    #print("batch_target.shape: ", batch_target.shape)
     #print("batch_target: ", batch_target)
     
 
