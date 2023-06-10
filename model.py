@@ -290,7 +290,6 @@ class Decoder(nn.Module):
     def __init__(self, num_layers, r1, r2, num_f_maps, input_dim, num_classes, att_type, alpha):
         super(Decoder, self).__init__()#         self.position_en = PositionalEncoding(d_model=num_f_maps)
         self.conv_1x1 = nn.Conv1d(input_dim, num_f_maps, 1)
-        #self.fencoder_conv_1x1 = nn.Conv1d(64, num_f_maps, 1)
         self.layers = nn.ModuleList(
             [AttModule(2 ** i, num_f_maps, num_f_maps, r1, r2, att_type, 'decoder', alpha) for i in # 2 ** i
              range(num_layers)])
@@ -299,12 +298,10 @@ class Decoder(nn.Module):
     def forward(self, x, fencoder, mask, current_step):
 
         feature = self.conv_1x1(x)  # shape of feature:  torch.Size([N, 18, L])
-        #fencoder = self.fencoder_conv_1x1(fencoder) # shape of fencoder:  torch.Size([N, 18, L])
         for layer in self.layers:
             feature = layer(feature, fencoder, mask)
 
         out = self.conv_out(feature) * mask[:, 0:1, :]
-
 
         # should I normalize the output?
 
@@ -331,7 +328,7 @@ class MyTransformer(nn.Module):
         
         # Reverse process (iterate from total_steps to 1)
         action_list = noisy_action_list
-        for current_step in range(total_steps, 0, -1):
+        for current_step in torch.range(total_steps, 0, -1, device=device):
             action_list, feature = self.decoder(F.softmax(action_list, dim=1) * mask[:, 0:1, :], condition* mask[:, 0:1, :], mask, current_step)
             if current_step % 5 == 0 and current_step <= 10:
                 outputs = torch.cat((outputs, action_list.unsqueeze(0)), dim=0)
@@ -411,7 +408,7 @@ class Trainer:
                         max=16) * mask[:, :, 1:])
                 """
 
-                epoch_loss += loss
+                epoch_loss += loss.item()
                 loss.backward()
                 optimizer.step()
 
