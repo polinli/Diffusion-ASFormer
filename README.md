@@ -1,12 +1,12 @@
-# ASFormer: Transformer for Action Segmentation
-This repo provides training &amp; inference code for BMVC 2021 paper: [ASFormer: Transformer for Action Segmentation](https://arxiv.org/pdf/2110.08568.pdf) 
+# Diffusion-ASFormer
+This repo use diffusion method to do Temporal Action Segmentation. The encoder and decoder backbone is adopted from [ASFormer: Transformer for Action Segmentation](https://arxiv.org/pdf/2110.08568.pdf).
 
-# ToDo
-1. add noise to ground truth.
-2. encoder input: feature, last step action list, current step
-3. recursively encode until step=0
-4. mask on encoder ouput (training)
-5. loss
+# Method
+1. Add noise to the ground truth (forward process).
+2. Encoder takes pre-extracted feature as input, and output an encoded feature.
+3. (Training) Encoder takes encoded feature, noisy ground truth, current step as input (Reverse process).
+4. (Inference) Encoder takes encoded feature, pure noise, current step as input (Reverse process).
+5. Recursively decode until step=0
 
 # Update 
 Thanks to @ddz16 . There is a small error in the code (L72, model.py), but it does not affect the main conclusions of this paper or the performance, see [#2](https://github.com/ChinaYi/ASFormer/issues/2). In order to load the pre training model of the paper, we do not update the repo to fix the bug. However, we still suggest to make a manual change after downloading the code.
