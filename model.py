@@ -10,6 +10,7 @@ import time
 
 from eval import segment_bars_with_confidence
 from add_noise import forward_process, generate_noise
+from loss import calculate_total_loss
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -280,7 +281,7 @@ class Encoder(nn.Module):
             feature = layer(feature, None, mask)
         
         out = self.conv_out(feature) * mask[:, 0:1, :]
-        feature = self.fencoder_conv_1x1(feature)
+        feature = self.fencoder_conv_1x1(feature) # from channel 64 to 16
 
         return out, feature
 
@@ -303,6 +304,9 @@ class Decoder(nn.Module):
             feature = layer(feature, fencoder, mask)
 
         out = self.conv_out(feature) * mask[:, 0:1, :]
+
+
+        # should I normalize the output?
 
         # out shape: (N, C, L)
         return out, feature
@@ -329,7 +333,7 @@ class MyTransformer(nn.Module):
         action_list = noisy_action_list
         for current_step in range(total_steps, 0, -1):
             action_list, feature = self.decoder(F.softmax(action_list, dim=1) * mask[:, 0:1, :], condition* mask[:, 0:1, :], mask, current_step)
-            if current_step < 5:
+            if current_step % 5 == 0 and current_step <= 10:
                 outputs = torch.cat((outputs, action_list.unsqueeze(0)), dim=0)
 
         '''
@@ -372,13 +376,15 @@ class Trainer:
                 batch_input, batch_target, mask = batch_input.to(device), batch_target.to(device), mask.to(device)
 
                 torch.manual_seed( int(time.time()) )
-                total_steps = torch.randint(1, 50, (1,)).item()   # randomly generate total_steps(tensor) from 1 to 1000
+                total_steps = torch.randint(1, 25, (1,)).item()   # randomly generate total_steps(tensor) from 1 to 1000
                 print("total_steps: ", total_steps)
 
                 # genrate noisy action list from ground-truth(batch_target), then pass to decoder        
                 one_hot_batch_target = F.one_hot(batch_target, num_classes=self.num_classes).float()    # convert batch_target to one-hot encoding
                 one_hot_batch_target = one_hot_batch_target.transpose(2, 1).contiguous()                # shape: (N, L, C) -> (N, C, L)
-                noisy_action_list = forward_process(one_hot_batch_target, total_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps = total_steps)
+                noise_steps = torch.randint(1, 1000, (1,)).item()   # randomly generate total_steps(tensor) from 1 to 1000
+                print("noise_steps: ", noise_steps)
+                noisy_action_list = forward_process(one_hot_batch_target, noise_steps, beta_start = 0.0001, beta_end = 0.04, beta_steps = total_steps)
 
                 # randomly choose one of condition mask from ground-truth(batch_target), then pass to encoder
                 # condition_mask = generate_condition_mask(batch_target)
@@ -388,23 +394,24 @@ class Trainer:
                 # ps = self.model(noisy_input, mask, condition_mask, total_steps)
                 ps = self.model(batch_input, noisy_action_list, mask, total_steps)
 
-                loss = 0
+                loss = calculate_total_loss(ps, batch_target, mask, num_classes=self.num_classes)
+                """
                 for p in ps:
-                    # shape: (N, C, L) => (N*L, C), shape: (N, L) => (N*L), 
                     # N = batch_size, L = length of the video, C = num_classes
-                    p_reformat = p.transpose(2, 1).contiguous().view(-1, self.num_classes) # shape of p_reformat:  torch.Size([N*L, 19])
-                    torch.set_printoptions(profile="default")
+                    p_reformat = p.transpose(2, 1).contiguous().view(-1, self.num_classes) # shape: (N, C, L) => (N*L, C)
+                    # torch.set_printoptions(profile="default")
                     # print("shape of p_reformat: ", p_reformat.shape)
                     # print("p_reformat: ", p_reformat)
                     # print("batch_target.shape: ", batch_target.shape)
                     # print("batch_target.view(-1).shape: ", batch_target.view(-1).shape) # batch_target.view(-1).shape:  torch.Size([L])
 
-                    loss += self.ce(p_reformat, batch_target.view(-1))
+                    loss += self.ce(p_reformat, batch_target.view(-1)) # (N*L, C), (N*L)
                     loss += 0.15 * torch.mean(torch.clamp(
                         self.mse(F.log_softmax(p[:, :, 1:], dim=1), F.log_softmax(p.detach()[:, :, :-1], dim=1)), min=0,
                         max=16) * mask[:, :, 1:])
+                """
 
-                epoch_loss += loss.item()
+                epoch_loss += loss
                 loss.backward()
                 optimizer.step()
 
@@ -418,7 +425,7 @@ class Trainer:
             print("[epoch %d]: epoch loss = %f,   acc = %f" % (epoch + 1, epoch_loss / len(batch_gen.list_of_examples),
                                                                float(correct) / total))
 
-            if (epoch ) % 10 == 0 and batch_gen_tst is not None:
+            if (epoch + 1) % 10 == 0 and batch_gen_tst is not None:
                 self.test(batch_gen_tst, epoch)
                 torch.save(self.model.state_dict(), save_dir + "/epoch-" + str(epoch + 1) + ".model")
                 torch.save(optimizer.state_dict(), save_dir + "/epoch-" + str(epoch + 1) + ".opt")
@@ -436,7 +443,7 @@ class Trainer:
                 pure_noise = generate_noise(batch_target, self.num_classes)
                 p = self.model(batch_input, pure_noise, mask, total_steps=25)
 
-                _, predicted = torch.max(p.data[-1], 1)
+                _, predicted = torch.max(p.data[-1], 1) # indices of max value along dim 1(C)
                 correct += ((predicted == batch_target).float() * mask[:, 0, :].squeeze(1)).sum().item()
                 total += torch.sum(mask[:, 0, :]).item()
 
