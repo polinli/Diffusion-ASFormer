@@ -34,5 +34,6 @@ def calculate_total_loss(ps, batch_target, mask, num_classes):
 
         loss += cross_entropy_loss(p_reformat, batch_target_reformat)
         loss += temporal_smoothness_loss(p).squeeze()
+        
 
     return loss
